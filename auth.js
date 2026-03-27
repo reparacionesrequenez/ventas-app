@@ -2,8 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebas
 import {
   getAuth,
   createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  onAuthStateChanged
+  signInWithEmailAndPassword
 } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -14,6 +13,7 @@ const firebaseConfig = {
   messagingSenderId: "356700421917",
   appId: "1:356700421917:web:1560c2facfd2bd7208abf4"
 };
+
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -38,6 +38,20 @@ function mostrarMensaje(texto, tipo = "info") {
   caja.className = `mensaje mensaje-${tipo}`;
 }
 
+function traducirError(codigo) {
+  const errores = {
+    "auth/email-already-in-use": "Ese correo ya está registrado.",
+    "auth/invalid-email": "El correo no es válido.",
+    "auth/weak-password": "La contraseña debe tener al menos 6 caracteres.",
+    "auth/invalid-credential": "Correo o contraseña incorrectos.",
+    "auth/user-not-found": "Ese usuario no existe.",
+    "auth/wrong-password": "La contraseña es incorrecta.",
+    "auth/missing-password": "Falta la contraseña.",
+    "auth/network-request-failed": "Error de red. Revisa tu conexión."
+  };
+  return errores[codigo] || `Ocurrió un error: ${codigo}`;
+}
+
 window.registrar = async () => {
   const { email, password } = obtenerCampos();
 
@@ -58,7 +72,7 @@ window.registrar = async () => {
 
   try {
     await createUserWithEmailAndPassword(auth, email, password);
-    mostrarMensaje("Usuario registrado correctamente. Redirigiendo al login...", "ok");
+    mostrarMensaje("Usuario registrado correctamente. Redirigiendo...", "ok");
     setTimeout(() => {
       window.location.href = "index.html";
     }, 1200);
@@ -77,7 +91,7 @@ window.login = async () => {
 
   try {
     await signInWithEmailAndPassword(auth, email, password);
-    mostrarMensaje("Inicio de sesión correcto. Entrando al sistema...", "ok");
+    mostrarMensaje("Inicio de sesión correcto. Entrando...", "ok");
     setTimeout(() => {
       window.location.href = "ventas.html";
     }, 900);
@@ -86,51 +100,16 @@ window.login = async () => {
   }
 };
 
-window.irRegistro = () => {
-  window.location.href = "Registro.html";
-};
-
-window.irLogin = () => {
-  window.location.href = "index.html";
-};
-
-function traducirError(codigo) {
-  const errores = {
-    "auth/email-already-in-use": "Ese correo ya está registrado.",
-    "auth/invalid-email": "El correo no es válido.",
-    "auth/weak-password": "La contraseña es demasiado débil.",
-    "auth/invalid-credential": "Correo o contraseña incorrectos.",
-    "auth/user-not-found": "Ese usuario no existe.",
-    "auth/wrong-password": "La contraseña es incorrecta.",
-    "auth/missing-password": "Falta la contraseña.",
-    "auth/network-request-failed": "Error de red. Revisa tu conexión."
-  };
-
-  return errores[codigo] || `Ocurrió un error: ${codigo}`;
-}
-
-// Permite usar Enter para enviar el formulario
 window.addEventListener("DOMContentLoaded", () => {
   const password = document.getElementById("password");
   if (password) {
     password.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        if (typeof window.login === "function" && document.title.toLowerCase().includes("login")) {
+        if (document.title.toLowerCase().includes("login")) {
           window.login();
-        } else if (typeof window.registrar === "function" && document.title.toLowerCase().includes("registro")) {
+        } else if (document.title.toLowerCase().includes("registro")) {
           window.registrar();
         }
-      }
-    });
-  }
-
-  // Si ya existe sesión y está en login/registro, mandar al panel
-  const path = window.location.pathname.toLowerCase();
-  const esPantallaAcceso = path.endsWith("index.html") || path.endsWith("/") || path.endsWith("registro.html");
-  if (esPantallaAcceso) {
-    onAuthStateChanged(auth, (user) => {
-      if (user && (path.endsWith("index.html") || path.endsWith("/"))) {
-        window.location.href = "ventas.html";
       }
     });
   }
