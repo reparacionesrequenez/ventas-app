@@ -10,9 +10,9 @@
   <main class="dashboard">
     <section class="topbar">
       <div>
-        <div class="brand">📊 Panel principal</div>
+        <div class="brand"> Panel principal</div>
         <h1>Control de ventas</h1>
-        <p>Registra, busca, edita y elimina ventas en tiempo real.</p>
+        <p>Registra, consulta, cancela y realiza corte del día.</p>
       </div>
 
       <div class="user-card">
@@ -26,27 +26,27 @@
 
     <section class="stats-grid">
       <article class="stat-card">
-        <div class="label">Número de ventas</div>
+        <div class="label">Ventas activas</div>
         <div class="value" id="contadorVentas">0</div>
       </article>
       <article class="stat-card">
-        <div class="label">Total acumulado</div>
+        <div class="label">Total vendido</div>
         <div class="value" id="totalVentas">$0.00</div>
       </article>
       <article class="stat-card">
-        <div class="label">Unidades vendidas</div>
-        <div class="value" id="totalUnidades">0</div>
+        <div class="label">Canceladas</div>
+        <div class="value" id="ventasCanceladas">0</div>
       </article>
       <article class="stat-card">
-        <div class="label">Promedio por venta</div>
-        <div class="value" id="promedioVentas">$0.00</div>
+        <div class="label">Corte del día</div>
+        <div class="value" id="corteDia">$0.00</div>
       </article>
     </section>
 
     <section class="layout">
       <article class="panel">
         <h2>Registrar venta</h2>
-        <p class="panel-desc">Captura el producto, la cantidad y el precio unitario. Luego guarda o actualiza la venta seleccionada.</p>
+        <p class="panel-desc">Captura producto, cantidad y precio unitario.</p>
 
         <div id="mensajeVenta" class="mensaje"></div>
 
@@ -71,16 +71,26 @@
           <button class="btn-warning" onclick="limpiarFormulario()">Limpiar</button>
         </div>
 
-        <p class="form-note">Tip: selecciona una venta de la lista para editarla.</p>
+        <hr style="margin: 22px 0; border-color: rgba(255,255,255,.1);">
+
+        <h2>Corte del día</h2>
+        <p class="panel-desc">Consulta ventas del día actual.</p>
+
+        <div class="actions">
+          <button class="btn-primary" onclick="mostrarCorteDelDia()">Ver corte del día</button>
+          <button class="btn-warning" onclick="imprimirCorte()">Imprimir corte</button>
+        </div>
+
+        <div id="reporteCorte" class="mensaje mensaje-info" style="margin-top:14px; display:none;"></div>
       </article>
 
       <article class="panel">
-        <h2>Historial de ventas</h2>
-        <p class="panel-desc">Consulta todas las ventas registradas y filtra por producto.</p>
+        <h2>Ventas realizadas</h2>
+        <p class="panel-desc">Consulta historial, busca por producto o folio y cancela tickets.</p>
 
         <div class="toolbar">
-          <input type="text" id="busqueda" placeholder="Buscar por producto...">
-          <div class="badge"> Firebase + Auth + Firestore</div>
+          <input type="text" id="busqueda" placeholder="Buscar por producto o folio...">
+          <div class="badge">Firebase + Auth + Firestore</div>
         </div>
 
         <div id="listaVentas" class="list"></div>
@@ -100,7 +110,6 @@
       collection,
       addDoc,
       updateDoc,
-      deleteDoc,
       doc,
       onSnapshot,
       query,
@@ -108,14 +117,14 @@
       serverTimestamp
     } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBhlGBYlqSRRq6ib20WlufcHQMt5vaXve8",
-  authDomain: "ventas-app-b92b7.firebaseapp.com",
-  projectId: "ventas-app-b92b7",
-  storageBucket: "ventas-app-b92b7.firebasestorage.app",
-  messagingSenderId: "356700421917",
-  appId: "1:356700421917:web:1560c2facfd2bd7208abf4"
-};
+    const firebaseConfig = {
+      apiKey: "AIzaSyBhlGBYlqSRRq6ib20WlufcHQMt5vaXve8",
+      authDomain: "ventas-app-b92b7.firebaseapp.com",
+      projectId: "ventas-app-b92b7",
+      storageBucket: "ventas-app-b92b7.firebasestorage.app",
+      messagingSenderId: "356700421917",
+      appId: "1:356700421917:web:1560c2facfd2bd7208abf4"
+    };
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
@@ -130,8 +139,9 @@ const firebaseConfig = {
     const mensajeVenta = document.getElementById("mensajeVenta");
     const contadorVentas = document.getElementById("contadorVentas");
     const totalVentas = document.getElementById("totalVentas");
-    const totalUnidades = document.getElementById("totalUnidades");
-    const promedioVentas = document.getElementById("promedioVentas");
+    const ventasCanceladas = document.getElementById("ventasCanceladas");
+    const corteDia = document.getElementById("corteDia");
+    const reporteCorte = document.getElementById("reporteCorte");
 
     let idVentaSeleccionada = null;
     let ventasCache = [];
@@ -159,6 +169,13 @@ const firebaseConfig = {
       return f.toLocaleString("es-MX");
     }
 
+    function fechaSoloYMD(fecha = new Date()) {
+      const anio = fecha.getFullYear();
+      const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+      const dia = String(fecha.getDate()).padStart(2, "0");
+      return `${anio}-${mes}-${dia}`;
+    }
+
     function escaparHTML(texto) {
       return String(texto)
         .replaceAll("&", "&amp;")
@@ -168,48 +185,72 @@ const firebaseConfig = {
         .replaceAll("'", "&#39;");
     }
 
+    function generarFolio() {
+      return "TK-" + Date.now();
+    }
+
     function renderizarVentas() {
       const termino = busquedaInput.value.trim().toLowerCase();
-      const ventasFiltradas = ventasCache.filter((venta) =>
-        venta.producto.toLowerCase().includes(termino)
-      );
+
+      const ventasFiltradas = ventasCache.filter((venta) => {
+        const producto = (venta.producto || "").toLowerCase();
+        const folio = (venta.folio || "").toLowerCase();
+        return producto.includes(termino) || folio.includes(termino);
+      });
 
       if (!ventasFiltradas.length) {
         listaVentas.innerHTML = `
           <div class="sale-item empty-state">
-            No se encontraron ventas${termino ? " con ese filtro" : " registradas"}.
+            No se encontraron ventas registradas.
           </div>
         `;
       } else {
         listaVentas.innerHTML = ventasFiltradas.map((venta) => {
           const subtotal = Number(venta.cantidad) * Number(venta.precio);
+          const cancelada = venta.estado === "cancelada";
+
           return `
-            <article class="sale-item">
+            <article class="sale-item" style="${cancelada ? 'opacity:.65; border:1px solid rgba(239,68,68,.45);' : ''}">
               <div class="sale-head">
                 <div>
                   <h3 class="sale-title">${escaparHTML(venta.producto)}</h3>
-                  <div class="sale-meta">Cantidad: <strong>${venta.cantidad}</strong> · Precio unitario: <strong>${formatoMoneda(venta.precio)}</strong></div>
-                  <div class="sale-user">Registró: ${escaparHTML(venta.usuario || "desconocido")} · ${fechaBonita(venta.fecha)}</div>
+                  <div class="sale-meta">
+                    Folio: <strong>${escaparHTML(venta.folio || "sin folio")}</strong>
+                  </div>
+                  <div class="sale-meta">
+                    Cantidad: <strong>${venta.cantidad}</strong> · Precio unitario: <strong>${formatoMoneda(venta.precio)}</strong>
+                  </div>
+                  <div class="sale-user">
+                    Registró: ${escaparHTML(venta.usuario || "desconocido")} · ${fechaBonita(venta.fecha)}
+                  </div>
+                  <div class="sale-user">
+                    Estado: <strong style="color:${cancelada ? '#fca5a5' : '#86efac'}">${cancelada ? 'CANCELADA' : 'ACTIVA'}</strong>
+                  </div>
                 </div>
                 <div class="sale-total">${formatoMoneda(subtotal)}</div>
               </div>
               <div class="sale-actions">
-                <button class="btn-primary" onclick="window.editarVenta('${venta.id}')">Editar</button>
-                <button class="btn-danger" onclick="window.eliminarVenta('${venta.id}')">Eliminar</button>
+                <button class="btn-primary" onclick="window.editarVenta('${venta.id}')" ${cancelada ? "disabled" : ""}>Editar</button>
+                <button class="btn-danger" onclick="window.cancelarVenta('${venta.id}')" ${cancelada ? "disabled" : ""}>Cancelar ticket</button>
               </div>
             </article>
           `;
         }).join("");
       }
 
-      const total = ventasFiltradas.reduce((acc, venta) => acc + (Number(venta.cantidad) * Number(venta.precio)), 0);
-      const unidades = ventasFiltradas.reduce((acc, venta) => acc + Number(venta.cantidad), 0);
-      const promedio = ventasFiltradas.length ? total / ventasFiltradas.length : 0;
+      const activas = ventasCache.filter(v => v.estado !== "cancelada");
+      const canceladas = ventasCache.filter(v => v.estado === "cancelada");
+      const hoy = fechaSoloYMD();
 
-      contadorVentas.textContent = String(ventasFiltradas.length);
-      totalVentas.textContent = formatoMoneda(total);
-      totalUnidades.textContent = String(unidades);
-      promedioVentas.textContent = formatoMoneda(promedio);
+      const totalActivas = activas.reduce((acc, v) => acc + (Number(v.cantidad) * Number(v.precio)), 0);
+      const totalHoy = activas
+        .filter(v => v.fechaTexto === hoy)
+        .reduce((acc, v) => acc + (Number(v.cantidad) * Number(v.precio)), 0);
+
+      contadorVentas.textContent = String(activas.length);
+      totalVentas.textContent = formatoMoneda(totalActivas);
+      ventasCanceladas.textContent = String(canceladas.length);
+      corteDia.textContent = formatoMoneda(totalHoy);
     }
 
     function limpiarFormulario() {
@@ -243,11 +284,22 @@ const firebaseConfig = {
     }
 
     onAuthStateChanged(auth, (user) => {
-  if (!user) {
-    window.location.href = "index.html";
-    return;
-  }
-});
+      if (!user) {
+        window.location.href = "index.html";
+        return;
+      }
+
+      usuarioActual.textContent = user.email || "Usuario sin correo";
+
+      const q = query(collection(db, "ventas"), orderBy("fecha", "desc"));
+      onSnapshot(q, (snapshot) => {
+        ventasCache = snapshot.docs.map(docu => ({
+          id: docu.id,
+          ...docu.data()
+        }));
+        renderizarVentas();
+      });
+    });
 
     busquedaInput.addEventListener("input", renderizarVentas);
 
@@ -270,8 +322,11 @@ const firebaseConfig = {
       try {
         await addDoc(collection(db, "ventas"), {
           ...datos,
+          folio: generarFolio(),
+          estado: "activa",
           usuario: auth.currentUser?.email || "desconocido",
-          fecha: serverTimestamp()
+          fecha: serverTimestamp(),
+          fechaTexto: fechaSoloYMD()
         });
         limpiarFormulario();
         mostrarMensaje("Venta registrada correctamente.", "ok");
@@ -282,7 +337,7 @@ const firebaseConfig = {
 
     window.editarVenta = (id) => {
       const venta = ventasCache.find((v) => v.id === id);
-      if (!venta) return;
+      if (!venta || venta.estado === "cancelada") return;
 
       idVentaSeleccionada = id;
       productoInput.value = venta.producto;
@@ -310,19 +365,76 @@ const firebaseConfig = {
       }
     };
 
-    window.eliminarVenta = async (id) => {
-      const confirmar = confirm("¿Seguro que deseas eliminar esta venta?");
+    window.cancelarVenta = async (id) => {
+      const confirmar = confirm("¿Seguro que deseas cancelar este ticket?");
       if (!confirmar) return;
 
       try {
-        await deleteDoc(doc(db, "ventas", id));
+        await updateDoc(doc(db, "ventas", id), {
+          estado: "cancelada"
+        });
+
         if (idVentaSeleccionada === id) {
           limpiarFormulario();
         }
-        mostrarMensaje("Venta eliminada correctamente.", "ok");
+
+        mostrarMensaje("La venta fue cancelada correctamente.", "ok");
       } catch (error) {
-        mostrarMensaje(`Error al eliminar: ${error.message}`, "error");
+        mostrarMensaje(`Error al cancelar: ${error.message}`, "error");
       }
+    };
+
+    window.mostrarCorteDelDia = () => {
+      const hoy = fechaSoloYMD();
+      const ventasHoy = ventasCache.filter(v => v.fechaTexto === hoy && v.estado !== "cancelada");
+      const total = ventasHoy.reduce((acc, v) => acc + (Number(v.cantidad) * Number(v.precio)), 0);
+
+      reporteCorte.style.display = "block";
+      reporteCorte.className = "mensaje mensaje-info";
+      reporteCorte.innerHTML = `
+        <strong>Corte del día (${hoy})</strong><br>
+        Ventas activas hoy: <strong>${ventasHoy.length}</strong><br>
+        Total vendido hoy: <strong>${formatoMoneda(total)}</strong>
+      `;
+    };
+
+    window.imprimirCorte = () => {
+      const hoy = fechaSoloYMD();
+      const ventasHoy = ventasCache.filter(v => v.fechaTexto === hoy && v.estado !== "cancelada");
+      const total = ventasHoy.reduce((acc, v) => acc + (Number(v.cantidad) * Number(v.precio)), 0);
+
+      let contenido = `
+        <h1>Corte del Día</h1>
+        <p><strong>Fecha:</strong> ${hoy}</p>
+        <p><strong>Ventas activas:</strong> ${ventasHoy.length}</p>
+        <p><strong>Total:</strong> ${formatoMoneda(total)}</p>
+        <hr>
+      `;
+
+      ventasHoy.forEach(v => {
+        contenido += `
+          <p>
+            <strong>Folio:</strong> ${v.folio}<br>
+            <strong>Producto:</strong> ${v.producto}<br>
+            <strong>Cantidad:</strong> ${v.cantidad}<br>
+            <strong>Precio:</strong> ${formatoMoneda(v.precio)}<br>
+            <strong>Subtotal:</strong> ${formatoMoneda(Number(v.cantidad) * Number(v.precio))}
+          </p>
+          <hr>
+        `;
+      });
+
+      const ventana = window.open("", "_blank");
+      ventana.document.write(`
+        <html>
+        <head><title>Corte del Día</title></head>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+          ${contenido}
+        </body>
+        </html>
+      `);
+      ventana.document.close();
+      ventana.print();
     };
 
     window.limpiarFormulario = limpiarFormulario;
