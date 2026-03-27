@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel de Ventas - Ventas App Pro</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="dashboard">
+    <section class="topbar">
+      <div>
+        <div class="brand">📊 Panel principal</div>
+        <h1>Control de ventas</h1>
+        <p>Registra, busca, edita y elimina ventas en tiempo real.</p>
+      </div>
+
+      <div class="user-card">
+        <div class="small-note">Sesión activa</div>
+        <div id="usuarioActual" class="email">Cargando...</div>
+        <div class="actions">
+          <button class="btn-danger" onclick="cerrarSesion()">Cerrar sesión</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="stat-card">
+        <div class="label">Número de ventas</div>
+        <div class="value" id="contadorVentas">0</div>
+      </article>
+      <article class="stat-card">
+        <div class="label">Total acumulado</div>
+        <div class="value" id="totalVentas">$0.00</div>
+      </article>
+      <article class="stat-card">
+        <div class="label">Unidades vendidas</div>
+        <div class="value" id="totalUnidades">0</div>
+      </article>
+      <article class="stat-card">
+        <div class="label">Promedio por venta</div>
+        <div class="value" id="promedioVentas">$0.00</div>
+      </article>
+    </section>
+
+    <section class="layout">
+      <article class="panel">
+        <h2>Registrar venta</h2>
+        <p class="panel-desc">Captura el producto, la cantidad y el precio unitario. Luego guarda o actualiza la venta seleccionada.</p>
+
+        <div id="mensajeVenta" class="mensaje"></div>
+
+        <div class="form-group">
+          <label for="producto">Producto</label>
+          <input type="text" id="producto" placeholder="Ej. Laptop Lenovo">
+        </div>
+
+        <div class="form-group">
+          <label for="cantidad">Cantidad</label>
+          <input type="number" id="cantidad" placeholder="Ej. 2" min="1">
+        </div>
+
+        <div class="form-group">
+          <label for="precio">Precio unitario</label>
+          <input type="number" id="precio" placeholder="Ej. 3500" min="0" step="0.01">
+        </div>
+
+        <div class="actions">
+          <button class="btn-success" onclick="guardarVenta()">Guardar</button>
+          <button class="btn-primary" onclick="actualizarVenta()">Actualizar</button>
+          <button class="btn-warning" onclick="limpiarFormulario()">Limpiar</button>
+        </div>
+
+        <p class="form-note">Tip: selecciona una venta de la lista para editarla.</p>
+      </article>
+
+      <article class="panel">
+        <h2>Historial de ventas</h2>
+        <p class="panel-desc">Consulta todas las ventas registradas y filtra por producto.</p>
+
+        <div class="toolbar">
+          <input type="text" id="busqueda" placeholder="Buscar por producto...">
+          <div class="badge">🔥 Firebase + Auth + Firestore</div>
+        </div>
+
+        <div id="listaVentas" class="list"></div>
+      </article>
+    </section>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+    import {
+      getAuth,
+      onAuthStateChanged,
+      signOut
+    } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
+    import {
+      getFirestore,
+      collection,
+      addDoc,
+      updateDoc,
+      deleteDoc,
+      doc,
+      onSnapshot,
+      query,
+      orderBy,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCAre1FtPQ1mH5sch_l15_QCUrrE6feJTs",
+      authDomain: "ventas-app-pro.firebaseapp.com",
+      projectId: "ventas-app-pro",
+      storageBucket: "ventas-app-pro.firebasestorage.app",
+      messagingSenderId: "142986289176",
+      appId: "1:142986289176:web:4906fdca2901a5b6aae36d"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const productoInput = document.getElementById("producto");
+    const cantidadInput = document.getElementById("cantidad");
+    const precioInput = document.getElementById("precio");
+    const busquedaInput = document.getElementById("busqueda");
+    const listaVentas = document.getElementById("listaVentas");
+    const usuarioActual = document.getElementById("usuarioActual");
+    const mensajeVenta = document.getElementById("mensajeVenta");
+    const contadorVentas = document.getElementById("contadorVentas");
+    const totalVentas = document.getElementById("totalVentas");
+    const totalUnidades = document.getElementById("totalUnidades");
+    const promedioVentas = document.getElementById("promedioVentas");
+
+    let idVentaSeleccionada = null;
+    let ventasCache = [];
+
+    function mostrarMensaje(texto, tipo = "info") {
+      mensajeVenta.textContent = texto;
+      mensajeVenta.className = `mensaje mensaje-${tipo}`;
+    }
+
+    function limpiarMensaje() {
+      mensajeVenta.textContent = "";
+      mensajeVenta.className = "mensaje";
+    }
+
+    function formatoMoneda(valor) {
+      return new Intl.NumberFormat("es-MX", {
+        style: "currency",
+        currency: "MXN"
+      }).format(Number(valor || 0));
+    }
+
+    function fechaBonita(fecha) {
+      if (!fecha) return "Sin fecha";
+      const f = typeof fecha.toDate === "function" ? fecha.toDate() : new Date(fecha);
+      return f.toLocaleString("es-MX");
+    }
+
+    function escaparHTML(texto) {
+      return String(texto)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function renderizarVentas() {
+      const termino = busquedaInput.value.trim().toLowerCase();
+      const ventasFiltradas = ventasCache.filter((venta) =>
+        venta.producto.toLowerCase().includes(termino)
+      );
+
+      if (!ventasFiltradas.length) {
+        listaVentas.innerHTML = `
+          <div class="sale-item empty-state">
+            No se encontraron ventas${termino ? " con ese filtro" : " registradas"}.
+          </div>
+        `;
+      } else {
+        listaVentas.innerHTML = ventasFiltradas.map((venta) => {
+          const subtotal = Number(venta.cantidad) * Number(venta.precio);
+          return `
+            <article class="sale-item">
+              <div class="sale-head">
+                <div>
+                  <h3 class="sale-title">${escaparHTML(venta.producto)}</h3>
+                  <div class="sale-meta">Cantidad: <strong>${venta.cantidad}</strong> · Precio unitario: <strong>${formatoMoneda(venta.precio)}</strong></div>
+                  <div class="sale-user">Registró: ${escaparHTML(venta.usuario || "desconocido")} · ${fechaBonita(venta.fecha)}</div>
+                </div>
+                <div class="sale-total">${formatoMoneda(subtotal)}</div>
+              </div>
+              <div class="sale-actions">
+                <button class="btn-primary" onclick="window.editarVenta('${venta.id}')">Editar</button>
+                <button class="btn-danger" onclick="window.eliminarVenta('${venta.id}')">Eliminar</button>
+              </div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      const total = ventasFiltradas.reduce((acc, venta) => acc + (Number(venta.cantidad) * Number(venta.precio)), 0);
+      const unidades = ventasFiltradas.reduce((acc, venta) => acc + Number(venta.cantidad), 0);
+      const promedio = ventasFiltradas.length ? total / ventasFiltradas.length : 0;
+
+      contadorVentas.textContent = String(ventasFiltradas.length);
+      totalVentas.textContent = formatoMoneda(total);
+      totalUnidades.textContent = String(unidades);
+      promedioVentas.textContent = formatoMoneda(promedio);
+    }
+
+    function limpiarFormulario() {
+      productoInput.value = "";
+      cantidadInput.value = "";
+      precioInput.value = "";
+      idVentaSeleccionada = null;
+      limpiarMensaje();
+      productoInput.focus();
+    }
+
+    function validarFormulario() {
+      const producto = productoInput.value.trim();
+      const cantidad = Number(cantidadInput.value);
+      const precio = Number(precioInput.value);
+
+      if (!producto) {
+        mostrarMensaje("Ingresa el nombre del producto.", "error");
+        return null;
+      }
+      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        mostrarMensaje("La cantidad debe ser mayor que cero.", "error");
+        return null;
+      }
+      if (!Number.isFinite(precio) || precio < 0) {
+        mostrarMensaje("El precio debe ser válido.", "error");
+        return null;
+      }
+
+      return { producto, cantidad, precio };
+    }
+
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        window.location.href = "index.html";
+        return;
+      }
+
+      usuarioActual.textContent = user.email;
+
+      const q = query(collection(db, "ventas"), orderBy("fecha", "desc"));
+      onSnapshot(q, (snapshot) => {
+        ventasCache = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data()
+        }));
+        renderizarVentas();
+      }, (error) => {
+        listaVentas.innerHTML = `<div class="sale-item empty-state">Error al cargar ventas: ${escaparHTML(error.message)}</div>`;
+      });
+    });
+
+    busquedaInput.addEventListener("input", renderizarVentas);
+
+    [productoInput, cantidadInput, precioInput].forEach((input) => {
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          if (idVentaSeleccionada) {
+            window.actualizarVenta();
+          } else {
+            window.guardarVenta();
+          }
+        }
+      });
+    });
+
+    window.guardarVenta = async () => {
+      const datos = validarFormulario();
+      if (!datos) return;
+
+      try {
+        await addDoc(collection(db, "ventas"), {
+          ...datos,
+          usuario: auth.currentUser?.email || "desconocido",
+          fecha: serverTimestamp()
+        });
+        limpiarFormulario();
+        mostrarMensaje("Venta registrada correctamente.", "ok");
+      } catch (error) {
+        mostrarMensaje(`Error al guardar: ${error.message}`, "error");
+      }
+    };
+
+    window.editarVenta = (id) => {
+      const venta = ventasCache.find((v) => v.id === id);
+      if (!venta) return;
+
+      idVentaSeleccionada = id;
+      productoInput.value = venta.producto;
+      cantidadInput.value = venta.cantidad;
+      precioInput.value = venta.precio;
+      mostrarMensaje("Editando venta seleccionada.", "info");
+      productoInput.focus();
+    };
+
+    window.actualizarVenta = async () => {
+      if (!idVentaSeleccionada) {
+        mostrarMensaje("Selecciona una venta para actualizar.", "error");
+        return;
+      }
+
+      const datos = validarFormulario();
+      if (!datos) return;
+
+      try {
+        await updateDoc(doc(db, "ventas", idVentaSeleccionada), datos);
+        limpiarFormulario();
+        mostrarMensaje("Venta actualizada correctamente.", "ok");
+      } catch (error) {
+        mostrarMensaje(`Error al actualizar: ${error.message}`, "error");
+      }
+    };
+
+    window.eliminarVenta = async (id) => {
+      const confirmar = confirm("¿Seguro que deseas eliminar esta venta?");
+      if (!confirmar) return;
+
+      try {
+        await deleteDoc(doc(db, "ventas", id));
+        if (idVentaSeleccionada === id) {
+          limpiarFormulario();
+        }
+        mostrarMensaje("Venta eliminada correctamente.", "ok");
+      } catch (error) {
+        mostrarMensaje(`Error al eliminar: ${error.message}`, "error");
+      }
+    };
+
+    window.limpiarFormulario = limpiarFormulario;
+
+    window.cerrarSesion = async () => {
+      try {
+        await signOut(auth);
+        window.location.href = "index.html";
+      } catch (error) {
+        mostrarMensaje(`Error al cerrar sesión: ${error.message}`, "error");
+      }
+    };
+  </script>
+</body>
+</html>

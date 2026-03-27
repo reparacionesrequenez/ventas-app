@@ -2,10 +2,10 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebas
 import {
   getAuth,
   createUserWithEmailAndPassword,
-  signInWithEmailAndPassword
+  signInWithEmailAndPassword,
+  onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
 
-  // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyBhlGBYlqSRRq6ib20WlufcHQMt5vaXve8",
   authDomain: "ventas-app-b92b7.firebaseapp.com",
@@ -15,34 +15,123 @@ const firebaseConfig = {
   appId: "1:356700421917:web:1560c2facfd2bd7208abf4"
 };
 
-
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-// REGISTRO
+function validarEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function obtenerCampos() {
+  const email = document.getElementById("email")?.value.trim() || "";
+  const password = document.getElementById("password")?.value || "";
+  return { email, password };
+}
+
+function mostrarMensaje(texto, tipo = "info") {
+  const caja = document.getElementById("mensaje");
+  if (!caja) {
+    alert(texto);
+    return;
+  }
+  caja.textContent = texto;
+  caja.className = `mensaje mensaje-${tipo}`;
+}
+
 window.registrar = async () => {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
+  const { email, password } = obtenerCampos();
+
+  if (!email || !password) {
+    mostrarMensaje("Completa correo y contraseña.", "error");
+    return;
+  }
+
+  if (!validarEmail(email)) {
+    mostrarMensaje("Ingresa un correo válido.", "error");
+    return;
+  }
+
+  if (password.length < 6) {
+    mostrarMensaje("La contraseña debe tener al menos 6 caracteres.", "error");
+    return;
+  }
 
   try {
     await createUserWithEmailAndPassword(auth, email, password);
-    alert("Usuario registrado correctamente");
-    window.location.href = "login.html";
+    mostrarMensaje("Usuario registrado correctamente. Redirigiendo al login...", "ok");
+    setTimeout(() => {
+      window.location.href = "index.html";
+    }, 1200);
   } catch (error) {
-    alert("Error: " + error.message);
+    mostrarMensaje(traducirError(error.code), "error");
   }
 };
 
-// LOGIN
 window.login = async () => {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
+  const { email, password } = obtenerCampos();
+
+  if (!email || !password) {
+    mostrarMensaje("Completa correo y contraseña.", "error");
+    return;
+  }
 
   try {
     await signInWithEmailAndPassword(auth, email, password);
-    alert("Login exitoso");
-    window.location.href = "index.html"; // redirige al CRUD
+    mostrarMensaje("Inicio de sesión correcto. Entrando al sistema...", "ok");
+    setTimeout(() => {
+      window.location.href = "ventas.html";
+    }, 900);
   } catch (error) {
-    alert("Error: " + error.message);
+    mostrarMensaje(traducirError(error.code), "error");
   }
 };
+
+window.irRegistro = () => {
+  window.location.href = "Registro.html";
+};
+
+window.irLogin = () => {
+  window.location.href = "index.html";
+};
+
+function traducirError(codigo) {
+  const errores = {
+    "auth/email-already-in-use": "Ese correo ya está registrado.",
+    "auth/invalid-email": "El correo no es válido.",
+    "auth/weak-password": "La contraseña es demasiado débil.",
+    "auth/invalid-credential": "Correo o contraseña incorrectos.",
+    "auth/user-not-found": "Ese usuario no existe.",
+    "auth/wrong-password": "La contraseña es incorrecta.",
+    "auth/missing-password": "Falta la contraseña.",
+    "auth/network-request-failed": "Error de red. Revisa tu conexión."
+  };
+
+  return errores[codigo] || `Ocurrió un error: ${codigo}`;
+}
+
+// Permite usar Enter para enviar el formulario
+window.addEventListener("DOMContentLoaded", () => {
+  const password = document.getElementById("password");
+  if (password) {
+    password.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        if (typeof window.login === "function" && document.title.toLowerCase().includes("login")) {
+          window.login();
+        } else if (typeof window.registrar === "function" && document.title.toLowerCase().includes("registro")) {
+          window.registrar();
+        }
+      }
+    });
+  }
+
+  // Si ya existe sesión y está en login/registro, mandar al panel
+  const path = window.location.pathname.toLowerCase();
+  const esPantallaAcceso = path.endsWith("index.html") || path.endsWith("/") || path.endsWith("registro.html");
+  if (esPantallaAcceso) {
+    onAuthStateChanged(auth, (user) => {
+      if (user && (path.endsWith("index.html") || path.endsWith("/"))) {
+        window.location.href = "ventas.html";
+      }
+    });
+  }
+});
